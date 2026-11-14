@@ -1,0 +1,214 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel Aryonn Beauty</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#fff5f9;font-family:Arial,sans-serif;color:#493640}
+header{background:#bd6390;color:white;padding:24px;text-align:center}
+main{max-width:850px;margin:25px auto;padding:18px}
+.card{background:white;border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 5px 20px #0000000b}
+h2{color:#ae527e}
+input,button{width:100%;padding:14px;border-radius:10px;font-size:16px;margin:7px 0}
+input{border:1px solid #e8cbd9}
+button{border:0;background:#b95887;color:white;font-weight:bold;cursor:pointer}
+button.secondary{background:#eee;color:#493640}
+button.cancel{background:#a33d4c}
+button:disabled{opacity:.5}
+.hidden{display:none}
+.item{border:1px solid #eedce5;border-radius:12px;padding:15px;margin:12px 0}
+.item p{margin:8px 0}
+.status{font-weight:bold;color:#a65a82}
+.actions{display:flex;gap:8px}
+.actions button{flex:1}
+#message{padding:12px;border-radius:10px;display:none}
+.error{background:#ffe5e5;color:#9b2222}
+.success{background:#e4f6e9;color:#216b3c}
+</style>
+</head>
+<body>
+<header>
+<h1>🌸 Aryonn Beauty</h1>
+<p>Painel administrativo</p>
+</header>
+
+<main>
+<section class="card" id="loginBox">
+<h2>Acesso ao salão</h2>
+<form id="loginForm">
+<input id="email" type="email" placeholder="E-mail cadastrado" required>
+<input id="password" type="password" placeholder="Sua senha" required>
+<button type="submit">Entrar no painel</button>
+</form>
+</section>
+
+<section class="card hidden" id="panel">
+<h2>Agendamentos</h2>
+<label for="date">Escolha a data:</label>
+<input type="date" id="date">
+<button id="refresh">Consultar agendamentos</button>
+<button class="secondary" id="logout">Sair</button>
+<div id="message"></div>
+<div id="appointments"></div>
+</section>
+</main>
+
+<script>
+const URL = "https://penhyliyyoubgnmcjbld.supabase.co";
+const KEY = "sb_publishable_XlnbfKQD2lJ2_4AAO13xCg_vK0ooVyW";
+const client = supabase.createClient(URL, KEY);
+
+const $ = id => document.getElementById(id);
+
+function today(){
+ const d=new Date();
+ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+function message(text,type="error"){
+ $("message").textContent=text;
+ $("message").className=type;
+ $("message").style.display="block";
+}
+
+function escapeHTML(value){
+ return String(value??"").replace(/[&<>"']/g,c=>({
+ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+ })[c]);
+}
+
+function relation(value){
+ return Array.isArray(value)?value[0]:value;
+}
+
+function dateTime(value){
+ return new Date(value).toLocaleString("pt-BR",{
+ timeZone:"America/Sao_Paulo",
+ dateStyle:"short",timeStyle:"short"
+ });
+}
+
+async function callAdmin(body){
+ const {data,error}=await client.functions.invoke(
+ "aryonn-beauty-admin",{body}
+ );
+ if(error) throw new Error(error.message||"Falha na comunicação.");
+ if(data?.error) throw new Error(data.error);
+ return data;
+}
+
+async function loadAppointments(){
+ $("appointments").innerHTML="Carregando...";
+ $("message").style.display="none";
+ try{
+  const data=await callAdmin({
+   action:"list_appointments",date:$("date").value
+  });
+  const list=data.appointments||[];
+  if(!list.length){
+   $("appointments").innerHTML="<p>Nenhum agendamento nesta data.</p>";
+   return;
+  }
+  $("appointments").innerHTML=list.map(a=>{
+   const customer=relation(a.customers)||{};
+   const service=relation(a.services)||{};
+   const staff=relation(a.staff)||{};
+   const status={
+    pending:"Pendente",
+    confirmed:"Confirmado",
+    cancelled:"Cancelado",
+    completed:"Concluído",
+    no_show:"Não compareceu"
+   }[a.status]||a.status;
+   return `
+    <div class="item">
+     <p><strong>Cliente:</strong> ${escapeHTML(customer.full_name)}</p>
+     <p><strong>Telefone:</strong> ${escapeHTML(customer.phone)}</p>
+     <p><strong>Serviço:</strong> ${escapeHTML(service.name)}</p>
+     <p><strong>Profissional:</strong> ${escapeHTML(staff.display_name)}</p>
+     <p><strong>Horário:</strong> ${dateTime(a.starts_at)}</p>
+     <p class="status">Status: ${escapeHTML(status)}</p>
+     ${a.status==="pending"||a.status==="confirmed"?`
+      <div class="actions">
+       ${a.status==="pending"?`
+        <button data-id="${a.id}" data-status="confirmed">Confirmar</button>`:""}
+       <button class="cancel" data-id="${a.id}" data-status="cancelled">Cancelar</button>
+      </div>`:""}
+    </div>`;
+  }).join("");
+ }catch(e){
+  $("appointments").innerHTML="";
+  message(e.message);
+ }
+}
+
+$("loginForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const button=e.submitter;
+ button.disabled=true;
+ button.textContent="Entrando...";
+ try{
+  const {error}=await client.auth.signInWithPassword({
+   email:$("email").value.trim(),
+   password:$("password").value
+  });
+  if(error) throw error;
+  $("loginBox").classList.add("hidden");
+  $("panel").classList.remove("hidden");
+  $("date").value=today();
+  await loadAppointments();
+ }catch(err){
+  message("Não foi possível entrar. Confira seu login e tente novamente.");
+ }finally{
+  button.disabled=false;
+  button.textContent="Entrar no painel";
+ }
+});
+
+$("refresh").addEventListener("click",loadAppointments);
+$("date").addEventListener("change",loadAppointments);
+
+$("logout").addEventListener("click",async()=>{
+ await client.auth.signOut();
+ $("panel").classList.add("hidden");
+ $("loginBox").classList.remove("hidden");
+ $("appointments").innerHTML="";
+});
+
+$("appointments").addEventListener("click",async e=>{
+ const button=e.target.closest("button[data-id]");
+ if(!button)return;
+ const id=button.dataset.id;
+ const status=button.dataset.status;
+ if(status==="cancelled"&&!confirm("Deseja cancelar este agendamento?"))return;
+ button.disabled=true;
+ try{
+  await callAdmin({
+   action:"update_status",
+   appointment_id:id,
+   status
+  });
+  message("Agendamento atualizado!","success");
+  await loadAppointments();
+ }catch(err){
+  message(err.message);
+  button.disabled=false;
+ }
+});
+
+(async()=>{
+ const {data}=await client.auth.getSession();
+ if(data.session){
+  $("loginBox").classList.add("hidden");
+  $("panel").classList.remove("hidden");
+  $("date").value=today();
+  await loadAppointments();
+ }
+})();
+</script>
+</body>
+</html>
