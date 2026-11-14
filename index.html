@@ -1,0 +1,167 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#bd7294">
+<title>Aryonn Beauty</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#fff7fa;color:#493641;font-family:Arial,sans-serif}
+header{background:linear-gradient(135deg,#bd7294,#e8b8c9);color:white;text-align:center;padding:30px 16px}
+header h1{margin:0 0 8px;font-size:29px}
+main{width:min(100% - 28px,520px);margin:24px auto}
+.card{background:white;padding:22px;border-radius:18px;box-shadow:0 5px 22px #6c405015}
+h2{color:#a65379;margin-top:0}
+label{display:block;font-weight:bold;margin:17px 0 7px}
+input,select{width:100%;padding:13px;border:1px solid #e4cbd6;border-radius:10px;background:white;color:#493641;font-size:16px}
+button{width:100%;border:0;padding:15px;margin-top:20px;border-radius:12px;background:#b75f88;color:white;font-size:16px;font-weight:bold}
+button:disabled{opacity:.55}
+.hint{color:#826c78;font-size:13px}
+#message{display:none;margin-top:16px;padding:12px;border-radius:10px;line-height:1.5}
+.success{display:block!important;background:#e7f6eb;color:#23653b}
+.error{display:block!important;background:#fff0f0;color:#9a3030}
+footer{text-align:center;padding:20px;color:#987f8d;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+<h1>Aryonn Beauty</h1>
+<p>Seu momento de beleza começa aqui ✨</p>
+</header>
+<main>
+<section class="card">
+<h2>Agende seu horário</h2>
+<p class="hint">Escolha o serviço, profissional e horário desejados.</p>
+<form id="bookingForm">
+<label for="service">Serviço</label>
+<select id="service" required><option value="">Carregando...</option></select>
+
+<label for="staff">Profissional</label>
+<select id="staff" required><option value="">Selecione</option></select>
+
+<label for="date">Data</label>
+<input id="date" type="date" required>
+
+<label for="time">Horário disponível</label>
+<select id="time" required disabled><option value="">Escolha os dados acima</option></select>
+
+<label for="name">Seu nome</label>
+<input id="name" type="text" minlength="2" maxlength="100" placeholder="Nome completo" autocomplete="name" required>
+
+<label for="phone">WhatsApp / telefone</label>
+<input id="phone" type="tel" maxlength="25" placeholder="(11) 99999-9999" autocomplete="tel" required>
+
+<button id="submitButton" type="submit">Solicitar agendamento</button>
+</form>
+<div id="message" role="status" aria-live="polite"></div>
+</section>
+</main>
+<footer>Aryonn Beauty · Agendamento online</footer>
+<script>
+const URL="https://penhyliyyoubgnmcjbld.supabase.co";
+const KEY="sb_publishable_XlnbfKQD2lJ2_4AAO13xCg_vK0ooVyW";
+const API=URL+"/functions/v1/aryonn-beauty-booking";
+const $=id=>document.getElementById(id);
+
+function message(text,type){
+ $("message").textContent=text;
+ $("message").className=type;
+}
+async function api(payload){
+ const r=await fetch(API,{
+  method:"POST",
+  headers:{"Content-Type":"application/json","apikey":KEY},
+  body:JSON.stringify(payload)
+ });
+ const d=await r.json();
+ if(!r.ok)throw new Error(d.error||"Erro na solicitação.");
+ return d;
+}
+function today(){
+ const d=new Date();
+ return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+async function load(){
+ try{
+  const d=await api({action:"bootstrap"});
+  $("service").innerHTML='<option value="">Selecione um serviço</option>';
+  (d.services||[]).forEach(s=>{
+   const o=document.createElement("option");
+   o.value=s.id;
+   o.textContent=s.name+" · "+s.duration_minutes+" min";
+   $("service").appendChild(o);
+  });
+  $("staff").innerHTML='<option value="">Selecione um profissional</option>';
+  (d.staff||[]).forEach(p=>{
+   const o=document.createElement("option");
+   o.value=p.id;o.textContent=p.display_name;
+   $("staff").appendChild(o);
+  });
+  $("date").min=today();
+  $("date").value=today();
+ }catch(e){message(e.message,"error")}
+}
+async function slots(){
+ $("time").disabled=true;
+ $("time").innerHTML='<option value="">Consultando...</option>';
+ const service_id=$("service").value;
+ const staff_id=$("staff").value;
+ const date=$("date").value;
+ if(!service_id||!staff_id||!date){
+  $("time").innerHTML='<option value="">Preencha os dados acima</option>';
+  return;
+ }
+ try{
+  const d=await api({action:"availability",service_id,staff_id,date});
+  $("time").innerHTML="";
+  if(!d.slots?.length){
+   $("time").innerHTML='<option value="">Sem horários disponíveis</option>';
+   return;
+  }
+  $("time").innerHTML='<option value="">Selecione um horário</option>';
+  d.slots.forEach(t=>{
+   const o=document.createElement("option");
+   o.value=t;o.textContent=t;$("time").appendChild(o);
+  });
+  $("time").disabled=false;
+ }catch(e){
+  $("time").innerHTML='<option value="">Erro ao consultar</option>';
+  message(e.message,"error");
+ }
+}
+["service","staff","date"].forEach(id=>$(id).addEventListener("change",slots));
+
+$("bookingForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const b=$("submitButton");
+ b.disabled=true;b.textContent="Enviando...";
+ try{
+  const d=await api({
+   action:"create_booking",
+   service_id:$("service").value,
+   staff_id:$("staff").value,
+   date:$("date").value,
+   time:$("time").value,
+   full_name:$("name").value.trim(),
+   phone:$("phone").value.trim()
+  });
+  if(d.success){
+   message("Solicitação recebida! Seu horário está pendente de confirmação pelo salão.","success");
+   $("bookingForm").reset();
+   $("date").value=today();
+   $("time").disabled=true;
+   $("time").innerHTML='<option value="">Selecione serviço e profissional</option>';
+  }
+ }catch(err){
+  message(err.message,"error");
+  await slots();
+ }finally{
+  b.disabled=false;b.textContent="Solicitar agendamento";
+ }
+});
+load();
+</script>
+</body>
+</html>
